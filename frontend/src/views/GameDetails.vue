@@ -5,6 +5,7 @@ import BackgroundHeader from "@/components/Details/BackgroundHeader.vue";
 import FileInfo from "@/components/Details/Info/FileInfo.vue";
 import GameInfo from "@/components/Details/Info/GameInfo.vue";
 import Personal from "@/components/Details/Personal.vue";
+import Cheats from "@/components/Details/Cheats.vue";
 import RelatedGames from "@/components/Details/RelatedGames.vue";
 import Saves from "@/components/Details/Saves.vue";
 import States from "@/components/Details/States.vue";
@@ -36,6 +37,7 @@ const tab = ref<
   | "saves"
   | "states"
   | "personal"
+  | "cheats"
   | "additionalcontent"
   | "screenshots"
   | "relatedgames"
@@ -139,6 +141,7 @@ watch(
             <v-tab value="personal">
               {{ t("rom.personal") }}
             </v-tab>
+            <v-tab value="cheats"> {{ t("rom.cheats") }} </v-tab>
             <v-tab
               v-if="
                 mdAndDown &&
@@ -182,6 +185,9 @@ watch(
               </v-window-item>
               <v-window-item value="personal">
                 <personal :rom="currentRom" />
+              </v-window-item>
+              <v-window-item value="cheats">
+                <cheats :rom="currentRom" />
               </v-window-item>
               <v-window-item
                 v-if="
