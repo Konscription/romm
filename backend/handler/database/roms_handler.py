@@ -1,12 +1,13 @@
 import functools
 from collections.abc import Iterable
+from datetime import datetime
 from typing import List, Sequence, Tuple
 
 from config import ROMM_DB_DRIVER
 from decorators.database import begin_session
 from models.collection import Collection, VirtualCollection
 from models.platform import Platform
-from models.rom import Rom, RomFile, RomMetadata, RomUser
+from models.rom import CheatCode, CheatFile, Rom, RomFile, RomMetadata, RomUser
 from sqlalchemy import (
     Integer,
     Row,
@@ -364,7 +365,7 @@ class DBRomsHandler(DBBaseHandler):
         selected_language: str | None = None,
         user_id: int | None = None,
         session: Session = None,
-    ) -> Query[Rom]:
+    ) -> Query:
         if platform_id:
             query = self.filter_by_platform_id(query, platform_id)
 
@@ -498,7 +499,7 @@ class DBRomsHandler(DBBaseHandler):
         user_id: int | None = None,
         query: Query = None,
         session: Session = None,
-    ) -> Query[Rom]:
+    ) -> Query:
         if user_id:
             query = query.outerjoin(
                 RomUser, and_(RomUser.rom_id == Rom.id, RomUser.user_id == user_id)
@@ -686,7 +687,8 @@ class DBRomsHandler(DBBaseHandler):
             delete(Rom)
             .where(
                 and_(
-                    Rom.platform_id == platform_id, Rom.fs_name.not_in(fs_roms_to_keep)
+                    Rom.platform_id == platform_id,
+                    Rom.fs_name.not_in(fs_roms_to_keep),
                 )
             )
             .execution_options(synchronize_session="evaluate")
@@ -778,3 +780,152 @@ class DBRomsHandler(DBBaseHandler):
             .execution_options(synchronize_session="evaluate")
         )
         return purged_rom_files
+
+    # Cheat Code Operations
+    @begin_session
+    def add_cheat_code(self, rom_id: int, data: dict, session: Session = None) -> dict:
+        """Add a new cheat code for a ROM"""
+        cheat_code = CheatCode(
+            rom_id=rom_id,
+            name=data.get("name", ""),
+            code=data.get("code", ""),
+            description=data.get("description", ""),
+            type=data.get("type", "raw"),
+        )
+        session.add(cheat_code)
+        session.flush()
+        return {
+            "id": cheat_code.id,
+            "name": cheat_code.name,
+            "code": cheat_code.code,
+            "description": cheat_code.description,
+            "type": cheat_code.type,
+        }
+
+    @begin_session
+    def update_cheat_code(
+        self, cheat_id: int, data: dict, session: Session = None
+    ) -> dict:
+        """Update an existing cheat code"""
+        session.execute(
+            update(CheatCode)
+            .where(CheatCode.id == cheat_id)
+            .values(
+                name=data.get("name"),
+                code=data.get("code"),
+                description=data.get("description"),
+                type=data.get("type", "raw"),
+            )
+            .execution_options(synchronize_session="evaluate")
+        )
+        cheat_code = session.query(CheatCode).filter_by(id=cheat_id).one()
+        return {
+            "id": cheat_code.id,
+            "name": cheat_code.name,
+            "code": cheat_code.code,
+            "description": cheat_code.description,
+            "type": cheat_code.type,
+        }
+
+    @begin_session
+    def delete_cheat_code(self, cheat_id: int, session: Session = None) -> None:
+        """Delete a cheat code"""
+        session.execute(
+            delete(CheatCode)
+            .where(CheatCode.id == cheat_id)
+            .execution_options(synchronize_session="evaluate")
+        )
+
+    @begin_session
+    def get_cheat_codes(self, rom_id: int, session: Session = None) -> list[dict]:
+        """Get all cheat codes for a ROM"""
+        cheat_codes = session.scalars(select(CheatCode).filter_by(rom_id=rom_id)).all()
+        return [
+            {
+                "id": code.id,
+                "name": code.name,
+                "code": code.code,
+                "description": code.description,
+                "type": code.type,
+            }
+            for code in cheat_codes
+        ]
+
+    # Cheat File Operations
+    @begin_session
+    async def upload_cheat_file(
+        self, rom_id: int, file_data: dict, session: Session = None
+    ) -> dict:
+        """Upload a cheat file for a ROM"""
+        import os
+
+        from anyio import Path
+        from config import RESOURCES_BASE_PATH
+        from handler.filesystem import fs_rom_handler
+
+        rom = self.get_rom(rom_id)
+        if not rom:
+            raise Exception("ROM not found")
+
+        # Create the cheat files directory if it doesn't exist
+        cheat_files_path = f"{RESOURCES_BASE_PATH}/{rom.fs_resources_path}/cheats"
+        if not os.path.exists(cheat_files_path):
+            await Path(cheat_files_path).mkdir(parents=True, exist_ok=True)
+
+        # Save the file to the filesystem
+        file_name = file_data.get("file_name", "cheat_file.cht")
+        file_path = f"{cheat_files_path}/{file_name}"
+        file_content = file_data.get("file_content", "")
+
+        await Path(file_path).write_text(file_content)
+
+        # Store metadata in the database
+        cheat_file = CheatFile(
+            rom_id=rom_id,
+            file_name=file_name,
+            file_path=file_path,
+            file_size_bytes=len(file_content),
+        )
+        session.add(cheat_file)
+        session.flush()
+
+        return {
+            "id": cheat_file.id,
+            "rom_id": rom_id,
+            "file_name": file_name,
+            "file_size": len(file_content),
+            "uploaded_at": cheat_file.uploaded_at.isoformat(),
+        }
+
+    @begin_session
+    def get_cheat_files(self, rom_id: int, session: Session = None) -> list[dict]:
+        """Get all cheat files for a ROM"""
+        cheat_files = session.scalars(select(CheatFile).filter_by(rom_id=rom_id)).all()
+        return [
+            {
+                "id": file.id,
+                "rom_id": file.rom_id,
+                "file_name": file.file_name,
+                "file_size": file.file_size_bytes,
+                "uploaded_at": file.uploaded_at.isoformat(),
+            }
+            for file in cheat_files
+        ]
+
+    @begin_session
+    def delete_cheat_file(self, file_id: int, session: Session = None) -> None:
+        """Delete a cheat file"""
+        cheat_file = session.scalar(select(CheatFile).filter_by(id=file_id))
+        if cheat_file:
+            # Delete the file from the filesystem
+            import os
+
+            if os.path.exists(cheat_file.file_path):
+                os.remove(cheat_file.file_path)
+
+            # Delete the record from the database
+            session.execute(
+                delete(CheatFile)
+                .where(CheatFile.id == file_id)
+                .execution_options(synchronize_session="evaluate")
+            )

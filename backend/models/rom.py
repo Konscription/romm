@@ -107,6 +107,40 @@ class RomMetadata(BaseModel):
     rom: Mapped[Rom] = relationship(lazy="joined", back_populates="metadatum")
 
 
+class CheatCodeType(enum.StrEnum):
+    RAW = "raw"
+    GAME_GENIE = "game_genie"
+    GAMESHARK = "gameshark"
+    CODEBREAKER = "codebreaker"
+    ACTIONREPLAY = "actionreplay"
+
+
+class CheatCode(BaseModel):
+    __tablename__ = "cheat_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    rom_id: Mapped[int] = mapped_column(ForeignKey("roms.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(length=255))
+    code: Mapped[str] = mapped_column(String(length=255))
+    description: Mapped[str] = mapped_column(Text)
+    type: Mapped[CheatCodeType] = mapped_column(Enum(CheatCodeType))
+    rom: Mapped[Rom] = relationship(lazy="joined", back_populates="cheat_codes")
+
+
+class CheatFile(BaseModel):
+    __tablename__ = "cheat_files"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    rom_id: Mapped[int] = mapped_column(ForeignKey("roms.id", ondelete="CASCADE"))
+    file_name: Mapped[str] = mapped_column(String(length=255))
+    file_path: Mapped[str] = mapped_column(String(length=1000))
+    file_size_bytes: Mapped[int] = mapped_column(BigInteger(), default=0)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=datetime.utcnow
+    )
+    rom: Mapped[Rom] = relationship(lazy="joined", back_populates="cheat_files")
+
+
 class Rom(BaseModel):
     __tablename__ = "roms"
 
@@ -201,6 +235,12 @@ class Rom(BaseModel):
         collection_class=set,
         lazy="select",
         back_populates="roms",
+    )
+    cheat_codes: Mapped[list[CheatCode]] = relationship(
+        lazy="select", back_populates="rom"
+    )
+    cheat_files: Mapped[list[CheatFile]] = relationship(
+        lazy="select", back_populates="rom"
     )
 
     @property

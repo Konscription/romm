@@ -9,7 +9,7 @@ from models.base import BaseModel
 from models.collection import VirtualCollection
 from models.firmware import Firmware  # noqa
 from models.platform import Platform  # noqa
-from models.rom import Rom, RomMetadata, SiblingRom  # noqa
+from models.rom import CheatCode, Rom, RomMetadata, SiblingRom  # noqa
 from models.user import User  # noqa
 from sqlalchemy import create_engine
 

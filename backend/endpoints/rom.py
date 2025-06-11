@@ -919,3 +919,148 @@ async def get_romfile_content(
     return FileRedirectResponse(
         download_path=Path(f"/library/{file.full_path}"),
     )
+
+
+# Cheat Code Endpoints
+@protected_route(router.post, "/{id}/cheats", [Scope.ROMS_WRITE])
+async def add_cheat_code(request: Request, id: int):
+    """Add a new cheat code for a ROM
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+
+    Returns:
+        dict: The created cheat code
+    """
+    rom = db_rom_handler.get_rom(id)
+    if not rom:
+        raise RomNotFoundInDatabaseException(id)
+
+    data = await request.json()
+    cheat_code = db_rom_handler.add_cheat_code(rom.id, data)
+    return cheat_code
+
+
+@protected_route(router.put, "/{id}/cheats/{cheat_id}", [Scope.ROMS_WRITE])
+async def update_cheat_code(request: Request, id: int, cheat_id: int):
+    """Update an existing cheat code
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+        cheat_id (int): Cheat code internal id
+
+    Returns:
+        dict: The updated cheat code
+    """
+    rom = db_rom_handler.get_rom(id)
+    if not rom:
+        raise RomNotFoundInDatabaseException(id)
+
+    data = await request.json()
+    cheat_code = db_rom_handler.update_cheat_code(cheat_id, data)
+    return cheat_code
+
+
+@protected_route(router.delete, "/{id}/cheats/{cheat_id}", [Scope.ROMS_WRITE])
+async def delete_cheat_code(request: Request, id: int, cheat_id: int):
+    """Delete a cheat code
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+        cheat_id (int): Cheat code internal id
+
+    Returns:
+        MessageResponse: Success message
+    """
+    rom = db_rom_handler.get_rom(id)
+    if not rom:
+        raise RomNotFoundInDatabaseException(id)
+
+    db_rom_handler.delete_cheat_code(cheat_id)
+    return {"msg": "Cheat code deleted successfully"}
+
+
+@protected_route(router.get, "/{id}/cheats", [Scope.ROMS_READ])
+async def get_cheat_codes(request: Request, id: int):
+    """Get all cheat codes for a ROM
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+
+    Returns:
+        list: List of cheat codes
+    """
+    rom = db_rom_handler.get_rom(id)
+    if not rom:
+        raise RomNotFoundInDatabaseException(id)
+
+    cheat_codes = db_rom_handler.get_cheat_codes(rom.id)
+    return cheat_codes
+
+
+# Cheat File Endpoints
+@protected_route(router.post, "/{id}/cheats/files", [Scope.ROMS_WRITE])
+async def upload_cheat_file(request: Request, id: int):
+    """Upload a cheat file for a ROM
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+
+    Returns:
+        dict: The created cheat file
+    """
+    rom = db_rom_handler.get_rom(id)
+    if not rom:
+        raise RomNotFoundInDatabaseException(id)
+
+    file = await request.form()
+    file_data = {
+        "file_name": file.get("file_name", ""),
+        "file_size": file.get("file_size", 0),
+    }
+    cheat_file = await db_rom_handler.upload_cheat_file(rom.id, file_data)
+    return cheat_file
+
+
+@protected_route(router.get, "/{id}/cheats/files", [Scope.ROMS_READ])
+async def get_cheat_files(request: Request, id: int):
+    """Get all cheat files for a ROM
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+
+    Returns:
+        list: List of cheat files
+    """
+    rom = db_rom_handler.get_rom(id)
+    if not rom:
+        raise RomNotFoundInDatabaseException(id)
+
+    cheat_files = db_rom_handler.get_cheat_files(rom.id)
+    return cheat_files
+
+
+@protected_route(router.delete, "/{id}/cheats/files/{file_id}", [Scope.ROMS_WRITE])
+async def delete_cheat_file(request: Request, id: int, file_id: int):
+    """Delete a cheat file
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+        file_id (int): Cheat file internal id
+
+    Returns:
+        MessageResponse: Success message
+    """
+    rom = db_rom_handler.get_rom(id)
+    if not rom:
+        raise RomNotFoundInDatabaseException(id)
+
+    db_rom_handler.delete_cheat_file(file_id)
+    return {"msg": "Cheat file deleted successfully"}
