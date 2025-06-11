@@ -115,6 +115,31 @@ class CheatCodeType(enum.StrEnum):
     ACTIONREPLAY = "actionreplay"
 
 
+# Custom SQLAlchemy type for case-insensitive enum
+class CaseInsensitiveCheatCodeType(Enum):
+    """Case-insensitive SQLAlchemy Enum type for CheatCodeType."""
+
+    def __init__(self, enum_class):
+        self.enum_class = enum_class
+        super().__init__(*[e.value for e in enum_class], name="cheatcodetype")
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value.lower()
+        return value.value.lower()
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        # Find the enum member with the matching value (case-insensitive)
+        for enum_member in self.enum_class:
+            if enum_member.value.lower() == value.lower():
+                return enum_member
+        return None
+
+
 class CheatCode(BaseModel):
     __tablename__ = "cheat_codes"
 
@@ -123,7 +148,9 @@ class CheatCode(BaseModel):
     name: Mapped[str] = mapped_column(String(length=255))
     code: Mapped[str] = mapped_column(String(length=255))
     description: Mapped[str] = mapped_column(Text)
-    type: Mapped[CheatCodeType] = mapped_column(Enum(CheatCodeType))
+    type: Mapped[CheatCodeType] = mapped_column(
+        CaseInsensitiveCheatCodeType(CheatCodeType)
+    )
     rom: Mapped[Rom] = relationship(lazy="joined", back_populates="cheat_codes")
 
 

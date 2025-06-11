@@ -2,8 +2,10 @@ import api from "@/services/api/index";
 
 export interface CheatCode {
   id: string;
+  name: string;
   code: string;
   description: string;
+  type: string;
   romId: string;
 }
 
@@ -14,8 +16,22 @@ export interface CheatFile {
 }
 
 export const addRomCheat = async (romId: string, cheatCode: CheatCode) => {
-  const response = await api.post(`/roms/${romId}/cheats`, cheatCode);
-  return response.data;
+  try {
+    console.log(`Adding cheat code for ROM ${romId}:`, cheatCode);
+    const response = await api.post(`/roms/${romId}/cheats`, cheatCode);
+    console.log(`Add cheat response:`, response);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Failed to add cheat code for ROM ${romId}:`, error);
+    // Log more details about the error
+    if (error.response) {
+      console.error("Error response:", error.response.data);
+      console.error("Error status:", error.response.status);
+    } else if (error.request) {
+      console.error("No response received:", error.request);
+    }
+    throw error;
+  }
 };
 
 export const updateRomCheat = async (
@@ -33,8 +49,13 @@ export const deleteRomCheat = async (romId: string, cheatId: string) => {
 };
 
 export const getCheatCodes = async (romId: string) => {
-  const response = await api.get(`/roms/${romId}/cheats`);
-  return response.data;
+  try {
+    const response = await api.get(`/roms/${romId}/cheats`);
+    return response.data;
+  } catch (error) {
+    console.error(`Failed to get cheat codes for ROM ${romId}:`, error);
+    throw error;
+  }
 };
 
 export const uploadCheatFile = async (romId: string, formData: FormData) => {

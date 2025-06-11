@@ -1,3 +1,4 @@
+import alembic.command
 import alembic.config
 import pytest
 from config.config_manager import ConfigManager
@@ -23,7 +24,18 @@ session = sessionmaker(bind=engine, expire_on_commit=False)
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_database():
-    alembic.config.main(argv=["upgrade", "head"])
+    # Configure alembic with the correct paths
+    import os
+
+    # Check if we're already in the backend directory
+    if os.path.exists("alembic.ini"):
+        config = alembic.config.Config("alembic.ini")
+        config.set_main_option("script_location", "alembic")
+    else:
+        config = alembic.config.Config("backend/alembic.ini")
+        config.set_main_option("script_location", "backend/alembic")
+
+    alembic.command.upgrade(config, "head")
 
 
 @pytest.fixture(autouse=True)

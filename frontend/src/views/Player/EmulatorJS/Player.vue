@@ -8,7 +8,7 @@ import {
   getControlSchemeForPlatform,
   getDownloadPath,
 } from "@/utils";
-import { inject, onBeforeUnmount, onMounted, ref } from "vue";
+import { inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useTheme } from "vuetify";
 import {
   saveSave,
@@ -22,6 +22,8 @@ import type { Emitter } from "mitt";
 import type { Events } from "@/types/emitter";
 import storePlaying from "@/stores/playing";
 import { storeToRefs } from "pinia";
+import { getCheatCodes } from "@/services/api/cheat";
+import { onBeforeRouteLeave } from "vue-router";
 
 const INVALID_CHARS_REGEX = /[#<$+%>!`&*'|{}/\\?"=@:^\r\n]/gi;
 
@@ -56,7 +58,7 @@ declare global {
     EJS_backgroundColor: string;
     EJS_gameUrl: string;
     EJS_loadStateURL: string | null;
-    EJS_cheats: string;
+    EJS_cheats: Array<[string, string]>;
     EJS_gameParentUrl: string;
     EJS_gamePatchUrl: string;
     EJS_netplayServer: string;
@@ -103,6 +105,9 @@ window.EJS_alignStartButton = "center";
 window.EJS_startOnLoaded = true;
 window.EJS_backgroundImage = `${window.location.origin}/assets/emulatorjs/powered_by_emulatorjs.png`;
 window.EJS_backgroundColor = theme.current.value.colors.background;
+// Clear any existing cheats first to prevent caching issues
+window.EJS_cheats = [];
+
 // Force saving saves and states to the browser
 window.EJS_defaultOptions = {
   "save-state-location": "browser",
@@ -113,7 +118,25 @@ window.EJS_gameName = romRef.value.fs_name_no_tags
   .replace(INVALID_CHARS_REGEX, "")
   .trim();
 
-onMounted(() => {
+// We'll load cheat codes in onMounted instead of IIFE to ensure they're refreshed on component reuse
+
+// Function to load and refresh cheat codes
+async function loadCheatCodes() {
+  try {
+    // Clear any existing cheats first to prevent caching issues
+    window.EJS_cheats = [];
+    const cheatCodes = await fetchCheatCodes();
+    if (cheatCodes.length > 0) {
+      // Format cheat codes for EmulatorJS
+      window.EJS_cheats = formatCheatCodesForEmulatorJS(cheatCodes);
+      console.log("Cheat codes loaded:", window.EJS_cheats);
+    }
+  } catch (error) {
+    console.error("Error loading cheat codes:", error);
+  }
+}
+
+onMounted(async () => {
   window.scrollTo(0, 0);
   if (props.bios) {
     localStorage.setItem(
@@ -142,14 +165,36 @@ onMounted(() => {
     localStorage.removeItem(`player:${romRef.value.id}:disc`);
   }
 
+  // Load cheat codes when component is mounted
+  await loadCheatCodes();
+
   emitter?.on("saveSelected", loadSave);
   emitter?.on("stateSelected", loadState);
 });
 
+// Watch for changes to the ROM ID and refresh cheats if it changes
+watch(
+  () => romRef.value.id,
+  async (newId: number, oldId: number) => {
+    if (newId !== oldId) {
+      await loadCheatCodes();
+    }
+  },
+);
+
+// Reference to the timeout for cheat updates
+const cheatUpdateTimeout = ref<number | null>(null);
+
 onBeforeUnmount(async () => {
+  // Clear any pending timeouts
+  if (cheatUpdateTimeout.value !== null) {
+    clearTimeout(cheatUpdateTimeout.value);
+    cheatUpdateTimeout.value = null;
+  }
+
   emitter?.off("saveSelected", loadSave);
   emitter?.off("stateSelected", loadState);
-  window.EJS_emulator?.callEvent("exit");
+
   fullScreen.value = false;
   playing.value = false;
 });
@@ -292,6 +337,22 @@ window.EJS_onGameStart = async () => {
       ...window.EJS_emulator.settings,
       "save-state-location": "browser",
     };
+
+    // Refresh cheat codes when game starts to ensure we have the latest
+    await loadCheatCodes();
+
+    // Clear any existing timeout
+    if (cheatUpdateTimeout.value !== null) {
+      clearTimeout(cheatUpdateTimeout.value);
+    }
+
+    // Wait a moment for the emulator to fully initialize before updating cheats
+    // Store the timeout ID so we can clear it if needed
+    cheatUpdateTimeout.value = window.setTimeout(() => {
+      // Directly update the emulator's cheat system
+      updateEmulatorCheats();
+      cheatUpdateTimeout.value = null;
+    }, 1000) as unknown as number;
   }, 10);
 
   const quickLoad = createQuickLoadButton();
@@ -339,6 +400,129 @@ window.EJS_onGameStart = async () => {
     window.history.back();
   });
 };
+
+/**
+ * Retrieves cheat codes for the current ROM from the backend
+ */
+async function fetchCheatCodes() {
+  try {
+    const cheatCodes = await getCheatCodes(romRef.value.id.toString());
+    console.log("Fetched cheat codes:", cheatCodes);
+    return cheatCodes || [];
+  } catch (error) {
+    console.error("Error fetching cheat codes:", error);
+    return [];
+  }
+}
+
+/**
+ * Type definition for cheat codes based on the API response
+ */
+interface CheatCode {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+  type: string;
+  romId: string;
+}
+
+/**
+ * Formats cheat codes for EmulatorJS
+ * @param cheatCodes - Array of cheat codes to format
+ * @returns Formatted cheat codes string for EmulatorJS in the format [["name", "value"], ["name2", "value2"]]
+ */
+function formatCheatCodesForEmulatorJS(
+  cheatCodes: CheatCode[],
+): Array<[string, string]> {
+  if (!cheatCodes || cheatCodes.length === 0) {
+    return [];
+  }
+
+  console.log("Formatting cheat codes for EmulatorJS:", cheatCodes);
+
+  // Create an array of arrays where each inner array contains [name, code]
+  return cheatCodes.map((code) => [code.name, code.code]);
+}
+
+/**
+ * Directly updates the emulator's cheat system using the internal EmulatorJS methods
+ * This ensures cheats are properly applied to the game
+ */
+function updateEmulatorCheats() {
+  if (!window.EJS_emulator?.gameManager) {
+    console.log("Cannot update emulator cheats: emulator not initialized");
+    return;
+  }
+
+  try {
+    console.log("Updating emulator cheats directly");
+
+    // Reset existing cheats first
+    window.EJS_emulator.gameManager.resetCheat();
+
+    // Only proceed if the emulator is still available and has the necessary methods
+    if (!window.EJS_emulator || !window.EJS_emulator.gameManager) {
+      console.log(
+        "Emulator or gameManager not available, skipping cheat update",
+      );
+      return;
+    }
+
+    try {
+      // Convert window.EJS_cheats format to the format expected by the emulator
+      interface EmulatorCheat {
+        desc: string;
+        code: string;
+        checked: boolean;
+      }
+
+      const cheats: EmulatorCheat[] = [];
+      if (window.EJS_cheats && window.EJS_cheats.length > 0) {
+        window.EJS_cheats.forEach(([desc, code]) => {
+          cheats.push({
+            desc,
+            code,
+            checked: false,
+          });
+        });
+      }
+
+      // Check if the emulator has the necessary methods before proceeding
+      if (
+        typeof window.EJS_emulator.gameManager.resetCheat !== "function" ||
+        typeof window.EJS_emulator.gameManager.setCheat !== "function"
+      ) {
+        console.log(
+          "Emulator missing required cheat methods, skipping cheat update",
+        );
+        return;
+      }
+
+      // Reset existing cheats first
+      window.EJS_emulator.gameManager.resetCheat();
+
+      // Apply each cheat to the emulator
+      cheats.forEach((cheat, index) => {
+        window.EJS_emulator.gameManager.setCheat(
+          index,
+          cheat.checked,
+          cheat.code,
+        );
+      });
+
+      // Update the cheat UI if the method exists
+      if (typeof window.EJS_emulator.updateCheatUI === "function") {
+        window.EJS_emulator.updateCheatUI();
+        console.log("Cheat UI updated successfully");
+      }
+    } catch (error) {
+      console.error("Error during cheat update:", error);
+    }
+  } catch (error) {
+    console.error("Error updating emulator cheats:", error);
+  }
+}
 </script>
 
 <template>

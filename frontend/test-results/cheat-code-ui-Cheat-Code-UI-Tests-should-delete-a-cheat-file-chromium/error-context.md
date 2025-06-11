@@ -1,0 +1,94 @@
+# Page snapshot
+
+```yaml
+- main:
+    - navigation:
+        - link "Home":
+            - /url: /
+            - img "Romm Logo"
+        - separator
+        - button "Collapse main navbar"
+        - button "Search"
+        - button "Platforms"
+        - button "Collections"
+        - button "Scan"
+        - button "Upload"
+        - img
+    - navigation:
+        - text: Search platform
+        - textbox "Search platform"
+        - listbox:
+            - listitem "Nintendo 64 with 2 games": Nintendo 64 n64 2
+            - listitem "Psx with 1 games": Psx psx 1
+    - navigation:
+        - text: Search collection
+        - textbox "Search collection"
+        - listbox
+        - button "Add collection"
+    - navigation:
+        - listbox:
+            - img
+            - text: romm admin
+        - listbox:
+            - listitem "Profile"
+            - listitem "User Interface": User interface
+            - listitem "Library management"
+            - listitem "Administration"
+            - listitem "Server Stats": Server stats
+            - listitem "About"
+        - button "Logout"
+    - img
+    - img
+    - img
+    - button "Download Paper Mario"
+    - button "Copy download link Paper Mario"
+    - button "Play Paper Mario"
+    - button "Paper Mario admin menu"
+    - paragraph:
+        - text: Paper Mario
+        - button
+    - link "Nintendo 64":
+        - /url: /platform/1
+        - img
+        - text: Nintendo 64
+    - text: Aug 10, 2000
+    - link "3340 88.7":
+        - /url: https://www.igdb.com/games/paper-mario
+        - img
+        - text: "3340"
+        - separator
+        - text: "88.7"
+    - link "5400 8.0":
+        - /url: https://www.screenscraper.fr/gameinfos.php?gameid=5400
+        - img
+        - text: "5400"
+        - separator
+        - text: "8.0"
+    - tablist:
+        - tab "Details"
+        - tab "Game data"
+        - tab "Personal"
+        - tab "Cheats" [selected]
+    - text: Cheats
+    - table:
+        - rowgroup:
+            - row "Name Code Description Actions":
+                - cell "Name"
+                - cell "Code"
+                - cell "Description"
+                - cell "Actions"
+        - rowgroup
+    - separator
+    - text: Name
+    - textbox "Name Name"
+    - text: Code
+    - textbox "Code Code"
+    - text: Description
+    - textbox "Description Description"
+    - combobox:
+        - text: Raw
+        - textbox "Open": Raw
+    - button "Add Cheat" [disabled]
+- tooltip
+- tooltip
+```
