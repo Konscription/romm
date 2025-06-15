@@ -37,6 +37,13 @@ const { scopes } = storeToRefs(auth);
 const activeTab = ref("cheatcodes");
 const { mdAndDown } = useDisplay();
 
+const loadingCheats = ref(false);
+const loadingAddCheat = ref(false);
+const loadingUpdateCheat = ref<Record<string, boolean>>({});
+const loadingDeleteCheat = ref<Record<string, boolean>>({});
+const loadingUploadCheatFile = ref(false);
+const loadingDeleteCheatFile = ref<Record<string, boolean>>({});
+
 const cheats = ref(
   (props.rom.cheats ?? []).map((cheat) => ({
     ...cheat,
@@ -54,8 +61,32 @@ const newCheat = ref({
   type: "raw", // Default type
 });
 
+// Form validation
+const errors = ref({
+  name: "",
+  code: "",
+  description: "",
+  type: "",
+});
+
+// Validate form fields
+function validateField(field: string, value: string) {
+  if (field === "name") {
+    errors.value.name = !value
+      ? t("cheat.nameRequired") || "Name is required"
+      : "";
+  } else if (field === "code") {
+    errors.value.code = !value
+      ? t("cheat.codeRequired") || "Code is required"
+      : "";
+  }
+  // Type always has a default value, so no validation needed
+  // Description is optional, so no validation needed
+}
+
 // Fetch cheats from the backend
 async function refreshCheats() {
+  loadingCheats.value = true;
   try {
     const response = await getCheatCodes(props.rom.id.toString());
     if (response && Array.isArray(response)) {
@@ -71,6 +102,8 @@ async function refreshCheats() {
     }
   } catch (error) {
     console.error("Failed to fetch cheats:", error);
+  } finally {
+    loadingCheats.value = false;
   }
 }
 
@@ -81,8 +114,14 @@ onMounted(() => {
 });
 
 async function addCheat() {
-  if (!newCheat.value.name || !newCheat.value.code) return;
+  // Validate all fields before submission
+  validateField("name", newCheat.value.name);
+  validateField("code", newCheat.value.code);
 
+  // Check if there are any errors
+  if (errors.value.name || errors.value.code) return;
+
+  loadingAddCheat.value = true;
   try {
     console.log("Adding cheat:", newCheat.value);
     const result = await addRomCheat(props.rom.id.toString(), {
@@ -105,6 +144,8 @@ async function addCheat() {
   } catch (error: any) {
     console.error("Failed to add cheat code:", error);
     alert(t("cheat.addFailed") + ": " + (error.message || "Unknown error"));
+  } finally {
+    loadingAddCheat.value = false;
   }
 }
 
@@ -113,41 +154,66 @@ function toggleEdit(cheat: any) {
 }
 
 async function saveEdit(cheat: any) {
-  const result = await updateRomCheat(
-    props.rom.id.toString(),
-    cheat.id.toString(),
-    {
-      id: cheat.id.toString(),
-      name: cheat.editName,
-      code: cheat.editCode,
-      description: cheat.editDescription,
-      type: cheat.type,
-      romId: props.rom.id.toString(),
-    },
-  );
+  // Validate edit fields
+  const editErrors = {
+    name: !cheat.editName ? t("cheat.nameRequired") || "Name is required" : "",
+    code: !cheat.editCode ? t("cheat.codeRequired") || "Code is required" : "",
+  };
 
-  if (result) {
-    await refreshCheats(); // Refresh cheats after updating
-    cheat.isEditing = false;
+  // Check if there are any errors
+  if (editErrors.name || editErrors.code) {
+    // Show error messages temporarily
+    if (editErrors.name) alert(editErrors.name);
+    if (editErrors.code) alert(editErrors.code);
+    return;
+  }
+
+  loadingUpdateCheat.value[cheat.id] = true;
+  try {
+    const result = await updateRomCheat(
+      props.rom.id.toString(),
+      cheat.id.toString(),
+      {
+        id: cheat.id.toString(),
+        name: cheat.editName,
+        code: cheat.editCode,
+        description: cheat.editDescription,
+        type: cheat.type,
+        romId: props.rom.id.toString(),
+      },
+    );
+
+    if (result) {
+      await refreshCheats(); // Refresh cheats after updating
+      cheat.isEditing = false;
+    }
+  } finally {
+    loadingUpdateCheat.value[cheat.id] = false;
   }
 }
 
 async function deleteCheat(cheatId: number) {
   if (!confirm(t("cheat.confirmDelete"))) return;
 
-  const success = await deleteRomCheat(
-    props.rom.id.toString(),
-    cheatId.toString(),
-  );
+  loadingDeleteCheat.value[cheatId] = true;
+  try {
+    const success = await deleteRomCheat(
+      props.rom.id.toString(),
+      cheatId.toString(),
+    );
 
-  if (success) {
-    await refreshCheats(); // Refresh cheats after deleting
+    if (success) {
+      await refreshCheats(); // Refresh cheats after deleting
+    }
+  } finally {
+    loadingDeleteCheat.value[cheatId] = false;
   }
 }
 
 async function handleUploadCheatFile() {
   if (!newCheatFile.value || !props.rom.id) return;
 
+  loadingUploadCheatFile.value = true;
   const formData = new FormData();
   formData.append("file", newCheatFile.value);
 
@@ -157,15 +223,20 @@ async function handleUploadCheatFile() {
     newCheatFile.value = null;
   } catch (err) {
     // Handle Error
+  } finally {
+    loadingUploadCheatFile.value = false;
   }
 }
 
 async function handleDeleteCheatFile(fileId: string) {
+  loadingDeleteCheatFile.value[fileId] = true;
   try {
     await deleteCheatFile(props.rom.id.toString(), fileId);
     await refreshCheatFiles();
   } catch (err) {
     // Handle Error
+  } finally {
+    loadingDeleteCheatFile.value[fileId] = false;
   }
 }
 
@@ -248,13 +319,13 @@ function formatCheatType(type: string): string {
                   <span class="text-h6">{{ t("rom.cheats") }}</span>
                 </v-list-item>
               </v-card-title>
-              <v-table>
+              <v-table class="cheats-table">
                 <thead>
                   <tr>
                     <th>{{ t("cheat.name") }}</th>
                     <th>{{ t("cheat.code") }}</th>
-                    <th>{{ t("cheat.description") }}</th>
-                    <th>{{ t("cheat.type") }}</th>
+                    <th class="hide-on-small">{{ t("cheat.description") }}</th>
+                    <th class="hide-on-small">{{ t("cheat.type") }}</th>
                     <th class="text-center">{{ t("common.actions") }}</th>
                   </tr>
                 </thead>
@@ -266,7 +337,11 @@ function formatCheatType(type: string): string {
                           v-model="cheat.editName"
                           density="compact"
                           variant="outlined"
-                          hide-details
+                          :error-messages="
+                            !cheat.editName
+                              ? t('cheat.nameRequired') || 'Name is required'
+                              : ''
+                          "
                         />
                       </template>
                       <template v-else>
@@ -279,14 +354,18 @@ function formatCheatType(type: string): string {
                           v-model="cheat.editCode"
                           density="compact"
                           variant="outlined"
-                          hide-details
+                          :error-messages="
+                            !cheat.editCode
+                              ? t('cheat.codeRequired') || 'Code is required'
+                              : ''
+                          "
                         />
                       </template>
                       <template v-else>
                         <code>{{ cheat.code }}</code>
                       </template>
                     </td>
-                    <td>
+                    <td class="hide-on-small">
                       <template v-if="cheat.isEditing">
                         <v-text-field
                           v-model="cheat.editDescription"
@@ -299,7 +378,7 @@ function formatCheatType(type: string): string {
                         {{ cheat.description }}
                       </template>
                     </td>
-                    <td>
+                    <td class="hide-on-small">
                       <template v-if="cheat.isEditing">
                         <v-select
                           v-model="cheat.type"
@@ -325,10 +404,22 @@ function formatCheatType(type: string): string {
                         @click="
                           cheat.isEditing ? saveEdit(cheat) : toggleEdit(cheat)
                         "
-                        :disabled="!scopes.includes('roms.user.write')"
+                        :disabled="
+                          !scopes.includes('roms.user.write') ||
+                          (cheat.isEditing && loadingUpdateCheat[cheat.id])
+                        "
                       >
                         <v-icon>
-                          {{ cheat.isEditing ? "mdi-check" : "mdi-pencil" }}
+                          <template
+                            v-if="
+                              cheat.isEditing && loadingUpdateCheat[cheat.id]
+                            "
+                          >
+                            <v-progress-circular indeterminate size="20" />
+                          </template>
+                          <template v-else>
+                            {{ cheat.isEditing ? "mdi-check" : "mdi-pencil" }}
+                          </template>
                         </v-icon>
                       </v-btn>
                       <v-btn
@@ -336,9 +427,21 @@ function formatCheatType(type: string): string {
                         density="comfortable"
                         color="error"
                         @click="deleteCheat(cheat.id)"
-                        :disabled="!scopes.includes('roms.user.write')"
+                        :disabled="
+                          !scopes.includes('roms.user.write') ||
+                          loadingDeleteCheat[cheat.id]
+                        "
                       >
-                        <v-icon>mdi-delete</v-icon>
+                        <v-icon>
+                          <template v-if="loadingDeleteCheat[cheat.id]">
+                            <v-progress-circular
+                              indeterminate
+                              size="20"
+                              color="error"
+                            />
+                          </template>
+                          <template v-else> mdi-delete </template>
+                        </v-icon>
                       </v-btn>
                     </td>
                   </tr>
@@ -348,25 +451,31 @@ function formatCheatType(type: string): string {
               <v-divider class="my-4" />
 
               <v-row class="align-center">
-                <v-col cols="12" md="3">
+                <v-col cols="12" sm="6" md="3">
                   <v-text-field
                     v-model="newCheat.name"
                     :label="t('cheat.name')"
                     density="compact"
                     variant="outlined"
-                    hide-details
+                    :error-messages="errors.name"
+                    @input="validateField('name', newCheat.name)"
+                    @blur="validateField('name', newCheat.name)"
+                    required
                   />
                 </v-col>
-                <v-col cols="12" md="3">
+                <v-col cols="12" sm="6" md="3">
                   <v-text-field
                     v-model="newCheat.code"
                     :label="t('cheat.code')"
                     density="compact"
                     variant="outlined"
-                    hide-details
+                    :error-messages="errors.code"
+                    @input="validateField('code', newCheat.code)"
+                    @blur="validateField('code', newCheat.code)"
+                    required
                   />
                 </v-col>
-                <v-col cols="12" md="4">
+                <v-col cols="12" sm="6" md="3">
                   <v-text-field
                     v-model="newCheat.description"
                     :label="t('cheat.description')"
@@ -375,7 +484,7 @@ function formatCheatType(type: string): string {
                     hide-details
                   />
                 </v-col>
-                <v-col cols="12" md="2">
+                <v-col cols="12" sm="6" md="2">
                   <v-select
                     v-model="newCheat.type"
                     :items="cheatTypes"
@@ -387,19 +496,26 @@ function formatCheatType(type: string): string {
                     hide-details
                   />
                 </v-col>
-                <v-col cols="12" md="2">
+                <v-col cols="12" md="1">
                   <v-btn
                     color="primary"
                     block
                     :disabled="
-                      !newCheat.name ||
-                      !newCheat.code ||
-                      !scopes.includes('roms.user.write')
+                      !scopes.includes('roms.user.write') || loadingAddCheat
                     "
                     @click="addCheat"
                     data-test="add-cheat-button"
                   >
-                    {{ t("cheat.add") }}
+                    <template v-if="loadingAddCheat">
+                      <v-progress-circular
+                        indeterminate
+                        size="20"
+                        color="white"
+                      />
+                    </template>
+                    <template v-else>
+                      {{ t("cheat.add") }}
+                    </template>
                   </v-btn>
                 </v-col>
               </v-row>
@@ -409,73 +525,108 @@ function formatCheatType(type: string): string {
           <!-- Cheat Files Tab -->
           <v-tabs-window-item value="cheatfiles">
             <!-- Upload Cheat File -->
-            <v-file-input
-              v-model="newCheatFile"
-              :label="t('rom.uploadCheatFile')"
-              accept=".txt,.db,.zip"
-              show-size
-              density="compact"
-              variant="outlined"
-              prepend-icon="mdi-upload"
-              @change="handleUploadCheatFile"
-            />
+            <v-card class="pa-4 mb-4">
+              <v-file-input
+                v-model="newCheatFile"
+                :label="t('rom.uploadCheatFile')"
+                accept=".txt,.db,.zip"
+                show-size
+                density="compact"
+                variant="outlined"
+                prepend-icon="mdi-upload"
+                @change="handleUploadCheatFile"
+                :disabled="
+                  !scopes.includes('roms.user.write') || loadingUploadCheatFile
+                "
+                :hint="
+                  t('cheat.supportedFormats') ||
+                  'Supported formats: .txt, .db, .zip'
+                "
+                persistent-hint
+              />
+              <v-progress-linear
+                v-if="loadingUploadCheatFile"
+                indeterminate
+                color="primary"
+                class="mb-2"
+              />
+            </v-card>
 
             <!-- Display existing cheat files if any -->
-            <v-list
-              v-if="
-                Array.isArray(props.rom.cheat_files) &&
-                props.rom.cheat_files.length
-              "
-            >
-              <v-list-item
-                v-for="(file, index) in props.rom.cheat_files"
-                :key="index"
-                class="px-0"
+            <v-card class="pa-4">
+              <v-list
+                v-if="
+                  Array.isArray(props.rom.cheat_files) &&
+                  props.rom.cheat_files.length
+                "
+                class="cheat-files-list"
               >
-                <template v-slot:prepend>
-                  <v-icon icon="mdi-file-document" class="mr-2"></v-icon>
-                </template>
+                <v-list-item
+                  v-for="(file, index) in props.rom.cheat_files"
+                  :key="index"
+                  class="px-0 cheat-file-item mb-2"
+                  :class="{ 'mb-3': mdAndDown }"
+                  rounded
+                  variant="outlined"
+                >
+                  <template v-slot:prepend>
+                    <v-icon icon="mdi-file-document" class="mr-2"></v-icon>
+                  </template>
 
-                <v-list-item-title class="font-weight-medium">
-                  {{ file.name }}
-                </v-list-item-title>
+                  <v-list-item-title class="font-weight-medium">
+                    {{ file.name }}
+                  </v-list-item-title>
 
-                <v-list-item-subtitle>
-                  {{ formatBytes((file as any).size) }} –
-                  {{ formatDate((file as any).updated_at) }}
-                </v-list-item-subtitle>
+                  <v-list-item-subtitle>
+                    {{ formatBytes((file as any).size) }} –
+                    {{ formatDate((file as any).updated_at) }}
+                  </v-list-item-subtitle>
 
-                <template v-slot:append>
-                  <v-btn
-                    icon
-                    color="primary"
-                    :href="(file as any).path"
-                    target="_blank"
-                    :title="t('common.view')"
-                    class="mr-2"
-                  >
-                    <v-icon>mdi-open-in-new</v-icon>
-                  </v-btn>
+                  <template v-slot:append>
+                    <v-btn
+                      icon
+                      color="primary"
+                      :href="(file as any).path"
+                      target="_blank"
+                      :title="t('common.view')"
+                      class="mr-2"
+                    >
+                      <v-icon>mdi-open-in-new</v-icon>
+                    </v-btn>
 
-                  <v-btn
-                    icon
-                    color="error"
-                    @click="handleDeleteCheatFile(file.id)"
-                    :title="t('common.delete')"
-                  >
-                    <v-icon>mdi-delete</v-icon>
-                  </v-btn>
-                </template>
-              </v-list-item>
-            </v-list>
+                    <v-btn
+                      icon
+                      color="error"
+                      @click="handleDeleteCheatFile(file.id)"
+                      :title="t('common.delete')"
+                      :disabled="
+                        !scopes.includes('roms.user.write') ||
+                        loadingDeleteCheatFile[file.id]
+                      "
+                    >
+                      <v-icon>
+                        <template v-if="loadingDeleteCheatFile[file.id]">
+                          <v-progress-circular
+                            indeterminate
+                            size="20"
+                            color="error"
+                          />
+                        </template>
+                        <template v-else> mdi-delete </template>
+                      </v-icon>
+                    </v-btn>
+                  </template>
+                </v-list-item>
+              </v-list>
 
-            <!-- Empty state message when no cheat files -->
-            <v-alert v-else type="info" variant="tonal" class="mt-2">
-              {{
-                t("rom.noCheatFiles") ||
-                "No cheat files uploaded yet. Use the input above to upload cheat files."
-              }}
-            </v-alert>
+              <!-- Empty state message when no cheat files -->
+              <v-alert v-else type="info" variant="tonal" class="mt-2">
+                {{
+                  t("rom.noCheatFiles") ||
+                  "No cheat files uploaded yet. Use the input above to upload cheat files."
+                }}
+              </v-alert>
+            </v-card>
           </v-tabs-window-item>
         </v-tabs-window>
       </v-col>
@@ -494,5 +645,48 @@ tbody td {
   padding: 8px;
   border-top: 1px solid #ddd;
   vertical-align: top;
+}
+
+/* Responsive styles */
+@media (max-width: 600px) {
+  .hide-on-small {
+    display: none;
+  }
+
+  .cheats-table {
+    font-size: 0.9rem;
+  }
+
+  tbody td {
+    padding: 4px;
+  }
+}
+
+/* Tablet adjustments */
+@media (min-width: 601px) and (max-width: 960px) {
+  .cheats-table {
+    font-size: 0.95rem;
+  }
+}
+
+/* Cheat files list styling */
+.cheat-files-list {
+  border-radius: 8px;
+}
+
+.cheat-file-item {
+  transition: background-color 0.2s ease;
+}
+
+.cheat-file-item:hover {
+  background-color: rgba(var(--v-theme-surface-variant), 0.1);
+}
+
+/* Add some spacing between form elements on mobile */
+@media (max-width: 600px) {
+  .v-col {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
 }
 </style>

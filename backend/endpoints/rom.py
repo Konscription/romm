@@ -922,6 +922,14 @@ async def get_romfile_content(
 
 
 # Cheat Code Endpoints
+
+
+def error_response(message: str, status_code: int = 500):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(status_code=status_code, content={"detail": message})
+
+
 @protected_route(router.post, "/{id}/cheats", [Scope.ROMS_WRITE])
 async def add_cheat_code(request: Request, id: int):
     """Add a new cheat code for a ROM
@@ -932,14 +940,32 @@ async def add_cheat_code(request: Request, id: int):
 
     Returns:
         dict: The created cheat code
-    """
-    rom = db_rom_handler.get_rom(id)
-    if not rom:
-        raise RomNotFoundInDatabaseException(id)
 
-    data = await request.json()
-    cheat_code = db_rom_handler.add_cheat_code(rom.id, data)
-    return cheat_code
+    Raises:
+        HTTPException: If validation fails or ROM not found
+    """
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
+
+        data = await request.json()
+
+        # Validate input data
+        from validators.cheat_code import CheatCodeValidator
+
+        validation_errors = CheatCodeValidator.validate_cheat_code(data)
+
+        if validation_errors:
+            # Do not leak validation details
+            log.warning(f"Cheat code validation failed: {validation_errors}")
+            return error_response("Invalid cheat code data.", 400)
+
+        cheat_code = db_rom_handler.add_cheat_code(rom.id, data)
+        return cheat_code
+    except Exception as exc:
+        log.error("Error in add_cheat_code", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)
 
 
 @protected_route(router.put, "/{id}/cheats/{cheat_id}", [Scope.ROMS_WRITE])
@@ -953,14 +979,31 @@ async def update_cheat_code(request: Request, id: int, cheat_id: int):
 
     Returns:
         dict: The updated cheat code
-    """
-    rom = db_rom_handler.get_rom(id)
-    if not rom:
-        raise RomNotFoundInDatabaseException(id)
 
-    data = await request.json()
-    cheat_code = db_rom_handler.update_cheat_code(cheat_id, data)
-    return cheat_code
+    Raises:
+        HTTPException: If validation fails or ROM not found
+    """
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
+
+        data = await request.json()
+
+        # Validate input data
+        from validators.cheat_code import CheatCodeValidator
+
+        validation_errors = CheatCodeValidator.validate_cheat_code(data)
+
+        if validation_errors:
+            log.warning(f"Cheat code validation failed: {validation_errors}")
+            return error_response("Invalid cheat code data.", 400)
+
+        cheat_code = db_rom_handler.update_cheat_code(cheat_id, data)
+        return cheat_code
+    except Exception as exc:
+        log.error("Error in update_cheat_code", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)
 
 
 @protected_route(router.delete, "/{id}/cheats/{cheat_id}", [Scope.ROMS_WRITE])
@@ -975,12 +1018,16 @@ async def delete_cheat_code(request: Request, id: int, cheat_id: int):
     Returns:
         MessageResponse: Success message
     """
-    rom = db_rom_handler.get_rom(id)
-    if not rom:
-        raise RomNotFoundInDatabaseException(id)
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
 
-    db_rom_handler.delete_cheat_code(cheat_id)
-    return {"msg": "Cheat code deleted successfully"}
+        db_rom_handler.delete_cheat_code(cheat_id)
+        return {"msg": "Cheat code deleted successfully"}
+    except Exception as exc:
+        log.error("Error in delete_cheat_code", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)
 
 
 @protected_route(router.get, "/{id}/cheats", [Scope.ROMS_READ])
@@ -994,12 +1041,17 @@ async def get_cheat_codes(request: Request, id: int):
     Returns:
         list: List of cheat codes
     """
-    rom = db_rom_handler.get_rom(id)
-    if not rom:
-        raise RomNotFoundInDatabaseException(id)
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
 
-    cheat_codes = db_rom_handler.get_cheat_codes(rom.id)
-    return cheat_codes
+        # This will automatically sync cheat codes from file to database
+        cheat_codes = db_rom_handler.get_cheat_codes(rom.id)
+        return cheat_codes
+    except Exception as exc:
+        log.error("Error in get_cheat_codes", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)
 
 
 # Cheat File Endpoints
@@ -1013,18 +1065,66 @@ async def upload_cheat_file(request: Request, id: int):
 
     Returns:
         dict: The created cheat file
-    """
-    rom = db_rom_handler.get_rom(id)
-    if not rom:
-        raise RomNotFoundInDatabaseException(id)
 
-    file = await request.form()
-    file_data = {
-        "file_name": file.get("file_name", ""),
-        "file_size": file.get("file_size", 0),
-    }
-    cheat_file = await db_rom_handler.upload_cheat_file(rom.id, file_data)
-    return cheat_file
+    Raises:
+        HTTPException: If validation fails or ROM not found
+    """
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
+
+        form = await request.form()
+
+        # Validate file data
+        errors = {}
+        file_name = str(form.get("file_name", ""))
+        file_size = form.get("file_size", 0)
+        file_content = str(form.get("file_content", ""))
+
+        if not file_name:
+            errors["file_name"] = "File name is required"
+        elif len(file_name) > 255:
+            errors["file_name"] = "File name must be 255 characters or less"
+
+        # Check file extension
+        allowed_extensions = [".txt", ".db", ".zip", ".cht"]
+        has_valid_extension = any(
+            file_name.lower().endswith(ext) for ext in allowed_extensions
+        )
+        if not has_valid_extension:
+            errors["file_name"] = (
+                f"File must have one of these extensions: {', '.join(allowed_extensions)}"
+            )
+
+        if not file_content:
+            errors["file_content"] = "File content is required"
+
+        if errors:
+            log.warning(f"Cheat file validation failed: {errors}")
+            return error_response("Invalid cheat file data.", 400)
+
+        # Sanitize file data
+        try:
+            size_value = (
+                int(file_size)
+                if isinstance(file_size, (str, int)) and str(file_size).isdigit()
+                else len(file_content)
+            )
+        except (ValueError, TypeError):
+            size_value = len(file_content)
+
+        file_data = {
+            "file_name": file_name.strip(),
+            "file_size": size_value,
+            "file_content": file_content,
+        }
+
+        cheat_file = await db_rom_handler.upload_cheat_file(rom.id, file_data)
+        return cheat_file
+    except Exception as exc:
+        log.error("Error in upload_cheat_file", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)
 
 
 @protected_route(router.get, "/{id}/cheats/files", [Scope.ROMS_READ])
@@ -1038,12 +1138,16 @@ async def get_cheat_files(request: Request, id: int):
     Returns:
         list: List of cheat files
     """
-    rom = db_rom_handler.get_rom(id)
-    if not rom:
-        raise RomNotFoundInDatabaseException(id)
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
 
-    cheat_files = db_rom_handler.get_cheat_files(rom.id)
-    return cheat_files
+        cheat_files = db_rom_handler.get_cheat_files(rom.id)
+        return cheat_files
+    except Exception as exc:
+        log.error("Error in get_cheat_files", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)
 
 
 @protected_route(router.delete, "/{id}/cheats/files/{file_id}", [Scope.ROMS_WRITE])
@@ -1058,9 +1162,38 @@ async def delete_cheat_file(request: Request, id: int, file_id: int):
     Returns:
         MessageResponse: Success message
     """
-    rom = db_rom_handler.get_rom(id)
-    if not rom:
-        raise RomNotFoundInDatabaseException(id)
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
 
-    db_rom_handler.delete_cheat_file(file_id)
-    return {"msg": "Cheat file deleted successfully"}
+        db_rom_handler.delete_cheat_file(file_id)
+        return {"msg": "Cheat file deleted successfully"}
+    except Exception as exc:
+        log.error("Error in delete_cheat_file", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)
+
+
+@protected_route(router.post, "/{id}/cheats/sync", [Scope.ROMS_WRITE])
+async def sync_cheat_codes(request: Request, id: int):
+    """Synchronize cheat codes between database and flat files
+
+    Args:
+        request (Request): Fastapi Request object
+        id (int): Rom internal id
+
+    Returns:
+        MessageResponse: Success message
+    """
+    try:
+        rom = db_rom_handler.get_rom(id)
+        if not rom:
+            return error_response("ROM not found.", 404)
+
+        # Explicitly sync cheat codes
+        db_rom_handler.sync_cheats(rom.id)
+
+        return {"msg": "Cheat codes synchronized successfully"}
+    except Exception as exc:
+        log.error("Error in sync_cheat_codes", exc_info=exc)
+        return error_response("An error occurred while processing your request.", 500)

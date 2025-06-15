@@ -1,0 +1,32 @@
+# Cheat types configuration file
+
+cheat_types:
+  # Raw is the default built-in type that doesn't require validation
+  raw:
+    name: "Raw"
+    description: "Raw cheat codes without specific format validation"
+
+  # Define additional cheat types here
+  game_genie:
+    name: "Game Genie"
+    description: "Game Genie cheat codes"
+    pattern: "^[A-Z0-9]{6,8}$" # Regex pattern for validation (without hyphens)
+    example: "ABCD-EFGH or ABCDEF"
+
+  gameshark:
+    name: "GameShark"
+    description: "GameShark cheat codes"
+    pattern: "^[0-9A-F]{8}([0-9A-F]{8})?$" # Regex pattern for validation
+    example: "12345678 or 12345678 9ABCDEF0"
+
+  codebreaker:
+    name: "CodeBreaker"
+    description: "CodeBreaker cheat codes"
+    pattern: "^[0-9A-F]{8,12}$" # Regex pattern for validation
+    example: "12345678 or 123456789ABC"
+
+  actionreplay:
+    name: "ActionReplay"
+    description: "Action Replay cheat codes"
+    pattern: "^[0-9A-F]{8,16}$" # Regex pattern for validation
+    example: "12345678 or 123456789ABCDEF0123"

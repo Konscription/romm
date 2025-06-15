@@ -1,0 +1,32 @@
+{
+  "raw": {
+    "name": "Raw",
+    "description": "Raw cheat code with no specific format",
+    "pattern": "^.+$",
+    "example": "ABCDEF"
+  },
+  "game_genie": {
+    "name": "Game Genie",
+    "description": "Game Genie cheat codes",
+    "pattern": "^[A-Z0-9]{6,8}$",
+    "example": "ABCD-EFGH"
+  },
+  "gameshark": {
+    "name": "GameShark",
+    "description": "GameShark cheat codes",
+    "pattern": "^[0-9A-F]{8}([0-9A-F]{8})?$",
+    "example": "12345678 9ABCDEF0"
+  },
+  "codebreaker": {
+    "name": "CodeBreaker",
+    "description": "CodeBreaker cheat codes",
+    "pattern": "^[0-9A-F]{8,12}$",
+    "example": "123456789ABC"
+  },
+  "actionreplay": {
+    "name": "ActionReplay",
+    "description": "Action Replay cheat codes",
+    "pattern": "^[0-9A-F]{8,16}$",
+    "example": "123456789ABCDEF0"
+  }
+}

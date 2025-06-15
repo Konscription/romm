@@ -133,6 +133,11 @@ async function loadCheatCodes() {
     }
   } catch (error) {
     console.error("Error loading cheat codes:", error);
+    displayMessage("Failed to load cheat codes", {
+      duration: 4000,
+      className: "msg-error",
+      icon: "mdi-alert-circle-outline",
+    });
   }
 }
 
@@ -411,6 +416,11 @@ async function fetchCheatCodes() {
     return cheatCodes || [];
   } catch (error) {
     console.error("Error fetching cheat codes:", error);
+    displayMessage("Failed to fetch cheat codes from server", {
+      duration: 4000,
+      className: "msg-error",
+      icon: "mdi-alert-circle-outline",
+    });
     return [];
   }
 }
@@ -518,9 +528,19 @@ function updateEmulatorCheats() {
       }
     } catch (error) {
       console.error("Error during cheat update:", error);
+      displayMessage("Failed to apply cheat codes", {
+        duration: 4000,
+        className: "msg-error",
+        icon: "mdi-alert-circle-outline",
+      });
     }
   } catch (error) {
     console.error("Error updating emulator cheats:", error);
+    displayMessage("Failed to update emulator cheats", {
+      duration: 4000,
+      className: "msg-error",
+      icon: "mdi-alert-circle-outline",
+    });
   }
 }
 </script>

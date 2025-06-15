@@ -782,18 +782,223 @@ class DBRomsHandler(DBBaseHandler):
         return purged_rom_files
 
     # Cheat Code Operations
+
+    def _get_cheats_file_path(self, rom):
+        """
+        Get the path to the cheats.txt file for a ROM.
+
+        Args:
+            rom: The ROM object
+
+        Returns:
+            tuple: (cheats_dir, cheats_file) paths
+        """
+        import os
+
+        from config import RESOURCES_BASE_PATH
+
+        cheats_dir = os.path.join(RESOURCES_BASE_PATH, rom.fs_resources_path, "cheats")
+        cheats_file = os.path.join(cheats_dir, "cheats.txt")
+
+        return cheats_dir, cheats_file
+
+    def _read_cheats_from_file(self, rom):
+        """
+        Read cheat codes from the ROM's cheats.txt file.
+
+        Args:
+            rom: The ROM object
+
+        Returns:
+            list: List of dictionaries containing cheat code data
+        """
+        from backend.config.cheat_type_manager import cheat_type_manager
+
+        cheats_dir, cheats_file = self._get_cheats_file_path(rom)
+
+        import os
+
+        if not os.path.exists(cheats_file):
+            return []
+
+        cheat_codes = []
+        current_cheat = {
+            "name": "",
+            "description": "",
+            "type": "raw",  # Default to raw type
+            "code": "",
+        }
+
+        with open(cheats_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # Skip empty lines between cheats
+            if not line:
+                # If we have a code, save the current cheat and start a new one
+                if current_cheat["code"]:
+                    cheat_codes.append(current_cheat.copy())
+                    current_cheat = {
+                        "name": "",
+                        "description": "",
+                        "type": "raw",  # Default to raw type
+                        "code": "",
+                    }
+                i += 1
+                continue
+
+            # Parse metadata comments
+            if line.startswith("# Name:"):
+                current_cheat["name"] = line[len("# Name:") :].strip()
+            elif line.startswith("# Description:"):
+                current_cheat["description"] = line[len("# Description:") :].strip()
+            elif line.startswith("# Type:"):
+                type_value = line[len("# Type:") :].strip().lower()
+                # Validate type is a valid config value
+                valid_types = cheat_type_manager.get_all_type_ids()
+                current_cheat["type"] = (
+                    type_value if type_value in valid_types else "raw"
+                )
+            # If not a comment, it's a code
+            elif not line.startswith("#"):
+                current_cheat["code"] = line
+
+            i += 1
+
+        # Add the last cheat if there is one
+        if current_cheat["code"]:
+            cheat_codes.append(current_cheat)
+
+        return cheat_codes
+
+    def _write_cheats_to_file(self, rom, session):
+        """
+        Write all cheat codes for a ROM to cheats.txt in the appropriate directory.
+        """
+        # Get all cheats for this ROM
+        cheat_codes = session.scalars(select(CheatCode).filter_by(rom_id=rom.id)).all()
+
+        # Build cheats.txt content
+        lines = []
+        for cheat in cheat_codes:
+            # Write name and description as comments, then the code
+            if cheat.name:
+                lines.append(f"# Name: {cheat.name}")
+            if cheat.description:
+                lines.append(f"# Description: {cheat.description}")
+            if cheat.type:
+                lines.append(f"# Type: {cheat.type}")
+            lines.append(str(cheat.code))
+            lines.append("")  # Blank line between cheats
+
+        content = "\n".join(lines).strip() + "\n" if lines else ""
+
+        # Determine cheats directory
+        cheats_dir, cheats_file = self._get_cheats_file_path(rom)
+        import os
+
+        os.makedirs(cheats_dir, exist_ok=True)
+
+        # Write to file
+        with open(cheats_file, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    @begin_session
+    def sync_cheats(self, rom_id: int, session: Session = None) -> None:
+        """
+        Synchronize cheat codes between the database and flat file.
+
+        This method:
+        1. Reads cheat codes from the flat file
+        2. Compares with database cheat codes
+        3. Adds missing cheat codes to the database
+        4. Updates the flat file with all cheat codes
+
+        Args:
+            rom_id: The ROM ID
+            session: SQLAlchemy session
+        """
+        rom = self.get_rom(rom_id)
+        if not rom:
+            return
+
+        # Get cheat codes from database
+        db_cheat_codes = session.scalars(
+            select(CheatCode).filter_by(rom_id=rom_id)
+        ).all()
+
+        # Get cheat codes from file
+        file_cheat_codes = self._read_cheats_from_file(rom)
+
+        # Create a dictionary of existing cheat codes by code value for quick lookup
+        existing_codes = {cheat.code: cheat for cheat in db_cheat_codes}
+
+        # Add cheat codes from file that don't exist in the database
+        for file_cheat in file_cheat_codes:
+            if file_cheat["code"] not in existing_codes:
+                # Add new cheat code to database
+                from validators.cheat_code import CheatCodeValidator
+
+                # Sanitize input data
+                sanitized_data = CheatCodeValidator.sanitize_cheat_code(file_cheat)
+
+                cheat_code = CheatCode(
+                    rom_id=rom_id,
+                    name=sanitized_data["name"],
+                    code=sanitized_data["code"],
+                    description=sanitized_data["description"],
+                    type=sanitized_data["type"],
+                )
+                session.add(cheat_code)
+            else:
+                # Update existing cheat code if metadata differs
+                existing_cheat = existing_codes[file_cheat["code"]]
+                if (
+                    existing_cheat.name != file_cheat["name"]
+                    or existing_cheat.description != file_cheat["description"]
+                    or existing_cheat.type != file_cheat["type"]
+                ):
+
+                    # Prioritize database values over file values
+                    # This is a policy decision - we could also choose to prioritize file values
+                    # or implement more complex conflict resolution
+                    pass
+
+        # Flush changes to get IDs for new cheat codes
+        session.flush()
+
+        # Write all cheats back to file (including any that were only in the database)
+        self._write_cheats_to_file(rom, session)
+
     @begin_session
     def add_cheat_code(self, rom_id: int, data: dict, session: Session = None) -> dict:
         """Add a new cheat code for a ROM"""
+        from validators.cheat_code import CheatCodeValidator
+
+        # Sanitize input data
+        sanitized_data = CheatCodeValidator.sanitize_cheat_code(data)
+
+        # First sync existing cheats to ensure we have the latest from the file
+        self.sync_cheats(rom_id, session=session)
+
         cheat_code = CheatCode(
             rom_id=rom_id,
-            name=data.get("name", ""),
-            code=data.get("code", ""),
-            description=data.get("description", ""),
-            type=data.get("type", "raw"),
+            name=sanitized_data["name"],
+            code=sanitized_data["code"],
+            description=sanitized_data["description"],
+            type=sanitized_data["type"],
         )
         session.add(cheat_code)
         session.flush()
+
+        # Write all cheats to file
+        rom = self.get_rom(rom_id)
+        if rom:
+            self._write_cheats_to_file(rom, session)
+
         return {
             "id": cheat_code.id,
             "name": cheat_code.name,
@@ -807,18 +1012,37 @@ class DBRomsHandler(DBBaseHandler):
         self, cheat_id: int, data: dict, session: Session = None
     ) -> dict:
         """Update an existing cheat code"""
+        from validators.cheat_code import CheatCodeValidator
+
+        # Get the cheat code to update
+        cheat_code = session.query(CheatCode).filter_by(id=cheat_id).one_or_none()
+        if not cheat_code:
+            raise ValueError(f"Cheat code with ID {cheat_id} not found")
+
+        # First sync existing cheats to ensure we have the latest from the file
+        self.sync_cheats(cheat_code.rom_id, session=session)
+
+        # Sanitize input data
+        sanitized_data = CheatCodeValidator.sanitize_cheat_code(data)
+
         session.execute(
             update(CheatCode)
             .where(CheatCode.id == cheat_id)
             .values(
-                name=data.get("name"),
-                code=data.get("code"),
-                description=data.get("description"),
-                type=data.get("type", "raw"),
+                name=sanitized_data["name"],
+                code=sanitized_data["code"],
+                description=sanitized_data["description"],
+                type=sanitized_data["type"],
             )
             .execution_options(synchronize_session="evaluate")
         )
         cheat_code = session.query(CheatCode).filter_by(id=cheat_id).one()
+
+        # Write all cheats to file
+        rom = self.get_rom(cheat_code.rom_id)
+        if rom:
+            self._write_cheats_to_file(rom, session)
+
         return {
             "id": cheat_code.id,
             "name": cheat_code.name,
@@ -830,15 +1054,32 @@ class DBRomsHandler(DBBaseHandler):
     @begin_session
     def delete_cheat_code(self, cheat_id: int, session: Session = None) -> None:
         """Delete a cheat code"""
+        # Get the cheat code and its rom_id before deleting
+        cheat_code = session.query(CheatCode).filter_by(id=cheat_id).one_or_none()
+        rom_id = cheat_code.rom_id if cheat_code else None
+
+        if rom_id:
+            # First sync existing cheats to ensure we have the latest from the file
+            self.sync_cheats(rom_id, session=session)
+
         session.execute(
             delete(CheatCode)
             .where(CheatCode.id == cheat_id)
             .execution_options(synchronize_session="evaluate")
         )
 
+        # Write all cheats to file
+        if rom_id:
+            rom = self.get_rom(rom_id)
+            if rom:
+                self._write_cheats_to_file(rom, session)
+
     @begin_session
     def get_cheat_codes(self, rom_id: int, session: Session = None) -> list[dict]:
         """Get all cheat codes for a ROM"""
+        # First sync existing cheats to ensure we have the latest from the file
+        self.sync_cheats(rom_id, session=session)
+
         cheat_codes = session.scalars(select(CheatCode).filter_by(rom_id=rom_id)).all()
         return [
             {

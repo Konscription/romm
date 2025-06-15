@@ -1,5 +1,13 @@
 import api from "@/services/api/index";
 
+export interface CheatType {
+  id: string;
+  name: string;
+  description: string;
+  pattern: string;
+  example: string;
+}
+
 export interface CheatCode {
   id: string;
   name: string;
@@ -58,6 +66,16 @@ export const getCheatCodes = async (romId: string) => {
   }
 };
 
+export const syncCheatCodes = async (romId: string) => {
+  try {
+    const response = await api.post(`/roms/${romId}/cheats/sync`);
+    return response.data;
+  } catch (error) {
+    console.error(`Failed to synchronize cheat codes for ROM ${romId}:`, error);
+    throw error;
+  }
+};
+
 export const uploadCheatFile = async (romId: string, formData: FormData) => {
   const response = await api.post(`/roms/${romId}/cheat-files`, formData, {
     headers: {
@@ -75,4 +93,24 @@ export const getCheatFiles = async (romId: string) => {
 export const deleteCheatFile = async (romId: string, fileId: string) => {
   const response = await api.delete(`/roms/${romId}/cheat-files/${fileId}`);
   return response.data;
+};
+
+export const getCheatTypes = async () => {
+  try {
+    const response = await api.get("/cheat_types");
+    return response.data;
+  } catch (error) {
+    console.error("Failed to get cheat types:", error);
+    throw error;
+  }
+};
+
+export const getCheatType = async (typeId: string) => {
+  try {
+    const response = await api.get(`/cheat_types/${typeId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Failed to get cheat type ${typeId}:`, error);
+    throw error;
+  }
 };
